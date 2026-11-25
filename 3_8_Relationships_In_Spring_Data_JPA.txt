@@ -1,0 +1,239 @@
+relationships
+
+1.	One to One relationship
+	- where one object belongs to only one another object.
+	- ex. 1 student belongs to only one passport and vise versa 1 passport should have only one student or user.
+	- how to use one to one relationship
+		- suppose we have 2 class student and passport
+		- student have (id, name) and passport have (id,number)
+		- now for defining relationship, we need to declare the variable of passport type in student class
+		(ex. private Passport passport;)
+		- and we need to declare the annotation @OneToOne on the passport variable.
+		- this @OneToOne on passport variable will automatically create the passport_id column in student table which is the foreign key of student table
+		and primary key of the passport table.
+		- if u want to go student using passport then u can do the vise versa or do the same in passport class by declaring student variable. and this is known 
+		as Bidirectional relationship.
+		- if u don't want the duplication like student will also have the passport_id column and passport also have the student_id column in birectional then u can
+		make use for mappedBy function in @OneToOne annotation. this maapedBy make sure that the passport will not have the student_id column. and student owns the
+		relationship side.
+		- syntax - @OneToOne(fetch = FetchType.LAZY, mappedBy="passport") the passport is the variable name in student class.
+		
+Example:
+	
+Case1: 
+@Entity
+@Data
+public class AdmissionRecord {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long admission_record_id;
+    private Integer fees;
+}
+
+@Entity
+@Data
+public class Student {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int student_id;
+    private String name;
+    @OneToOne
+    private AdmissionRecord admissionRecord;
+}
+
+Student table will have 3 columns : and admissionRecord will have two columns
+
+Case2:
+@Entity
+@Data
+public class AdmissionRecord {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long admission_record_id;
+    private Integer fees;
+    @OneToOne(mappedBy = "admissionRecord")
+    private Student student;
+}
+
+@Entity
+@Data
+public class Student {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int student_id;
+    private String name;
+    @OneToOne
+	// add to correct bidirectional mapping
+    private AdmissionRecord admissionRecord;
+}
+
+In this case, as it is a bidirectional mapping; it will work functionally but may cause infinite recursionduring serialization(e.g.,in JSON) and has an ambiguous owning side.
+
+SO the correct Bidirectional mapping for this is: add  @JoinColumn(name = "admission_record_id").
+
+		
+	- Fetch Types (Eager and Lazy fetch)
+		- by default hibernate has the Eager fetch for the @OneToOne mapping.
+		- Eager fetch : take the above example of student and passport where student have 1 passport. when we find the student details then hibernate will 
+		fetch the passport details also for that student, this is known as Eager fetch.
+		- Lazy fetch : in above example when we try find the deatils of student then hibernate will give us the student details only. and when we will try to 
+		access the passport details for that student then only hibernate will fetch the passport details.(like when accessing student object hibernate will fetch the
+		student details only like "select * from student where t.id=?" and when we trying to access student.getPassport() then hibernate will fetch the passport detail by
+		joining the passport table.).
+		- bassically Lazy fetch means u get the deatils only when they are needed.
+		- @OneToOne(fetch = FetchType.LAZY) on the passport variable.
+		
+2.	Many to One and One to Many relationship
+	- where many objects belongs to the only one object or vise versa.
+	- ex. 1 course should have many reviews.
+	- How to use Many to One relationship
+		- suppose we have the course and review class,
+		- course have (id, name) and review have (id,rating,desc).
+		- so here one course should have many reviews so in course POV this should be OneToMany relationship and from Review POV ManyToOne relationship.
+		- now the review is the owning side of the relationship because it is not suggested to store the review_id in course. so review will have course_id.
+		- now for defining relationship, declare list of review in Course class and give the @OneToMany(mappedBy = "course") annotation. "course" should be same
+		as the variable in the review class.
+		- declare the course variable in the review class where multiple reviews has only one course and give @ManyToOne annotation this will create the
+		course_id in review table. Review is the owning side of the relationship.
+		- by default hibernate has the Lazy fetch for the @OneToMany mapping.
+		- by default hibernate has the Eager fetch for the @ManyToOne mapping.
+		
+Example:
+@Entity
+@Data
+public class Subject {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private  Long subject_id;
+
+    private String name;
+
+    @ManyToOne
+    @JoinColumn(name = "professor_id")
+    private Professor professor;
+}
+@Entity
+@Data
+public class Professor {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long professor_id;
+
+    private String title;
+
+    @OneToMany(mappedBy = "professor")
+    private List<Subject> subjects;
+}
+
+		
+3.	Many to Many relationship
+	- where many objects to many objects.
+	- ex. one course should have multiple students and 	from student side one should should have multiple courses.
+	- we can't store the student_id in the course table and also can't store the course_id in student table. so joint table comes into the picture.
+	- ManyToMany relationship is always established by joint table.	
+	- How to use Many to many relationship
+		- suppose we have course and student class where one student have many courses and one course have many student
+		- now here owning side doesn't matter , we can choose any one of them.
+		- create the list of courses in student and list students in course and give the @ManyToMany annotation.
+		- here if we have the @ManyToMany to both of them and can't provide the mappedBy then two join join tables will be created.
+		- to avoid this make any of them is owning side so student is owning side and course have mappedBy="courses".
+		- to provide the specific name to the table and column name use below annotation on in the owning side class on the variable
+			@JoinTable(name = "STUDENT_COURSE", joinColumns = @JoinColumn(name = "STUDENT_ID"), inverseJoinColumns = @JoinColumn(name = "COURSE_ID"))
+		- by default hibernate has the Lazy fetch for the @ManyToMany mapping.
+		
+Example:
+@Entity
+@Data
+public class Subject {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private  Long subject_id;
+
+    private String name;
+
+    @ManyToOne
+    @JoinColumn(name = "professor_id")
+    private Professor professor;
+
+    @ManyToMany(mappedBy = "subjects")  //  matches field in Student
+    private List<Student> students;
+}
+
+@Entity
+@Data
+public class Student {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int student_id;
+
+    private String name;
+
+    @OneToOne
+    @JoinColumn(name = "admission_record_id")
+    private AdmissionRecord admissionRecord;
+
+    @ManyToMany
+    @JoinTable(
+            name = "student_subject",  // Join table name
+            joinColumns = @JoinColumn(name = "student_id"), // this entity's FK
+            inverseJoinColumns = @JoinColumn(name = "subject_id") // target entity's FK
+    )
+    private List<Subject> subjects;   
+}
+
+4.	Inheritence Hierarchies
+	- We have Employee and there will be 2 types of employee FullTime Employee and PartTime Employee.
+	- In this case we use the inheritence Hierarchies where PartTime and FullTime Employee will extends the Employee class.
+	- Employee has id and name, FullTime Employee has super class parameters and salary, PartTime Employee has super class parameters and HourlyWage.
+	- Create the abstract Employee class. every class has @Entity.
+	- Employee class has additional @Inheritance(strategy = InheritanceType.SINGLE_TABLE) here FullTime and PartTime Employee will be considered as type and 
+	  store in the same table. Hibernate will create one additional column as DTYPE for employee time.
+	- If you want to give specific name to the type column use below annotation above employee class.
+	   @DiscriminatorColumn(name = "Employee_Type")
+	- @Inheritance(strategy = InheritanceType.TABLE_PER_CLASS) - used for the special class or table for each class. special table will be created for both types 
+	  and have field id,name,salary and id,name,hourlyWage. there is duplication of column.
+	- @Inheritance(strategy = InheritanceType.JOINED) - will create the table for eacy concreate class. Employee(id,name), PartTime(id,hourlyWage), 
+	  FullTime(id,salary) will be created. and will use the join in the query to retrieve data which is very complex.there is no duplication of column.
+	- @mappedSuperClass - will only used above employee without @Entity. this will create only two tables PartTime and FullTime with id,name,salary and id,name,hourlyWage.
+
+5.	Transaction
+	- Either all fo the action are successfull or none.
+	- can be achieved by @Transactional. where either all of the transaction are successfull or none.
+	- if any transaction fails then it rolback all the previous transactions.
+	- ACID(Atomicity, Consistency, Isolation, Durability)
+	- @Transactional will be defined above the repository or specific methods.
+	- when the methods begins hibernate will create the persistence session and store all the objects or resultsin it. and when all the transactions got over, persistence session
+	  will terminate and sends all the data to database.
+	 
+6.	Custom Queries in JPA
+	- @Query("select c from course c where name like '%E1234%'") above method in repository.
+	- @Query(value = "select * from course where name like '%E1234%'", nativeQuery=true) - native query.
+	
+7.	caching
+	- without going to the database again and again, we will cache it.
+	- First Level Cache - single transaction, within single transaction if u are requesting a same data the first level cache comes into the picture.
+	- First Level cache will be used by using @Transactional annotation. suggested in business service.
+	- Second Level cache - common across multiple users.
+	- Second Level cache requires the below confirguration
+	1.	add the ehcache or alternate dependency in pon.xml
+	2.	application.properties file changes below
+		1.	enable second level cache using below property in the properties file
+		spring.jpa.properties.hibernate.cache.use_second_level_cache=true
+		2.	specify caching framework - Ehcache
+		spring.jpa.properties.hibernate.cache.region.factory_class=org.hibernate.cache.ehcache.EhCacheRegionFactory
+		3.	only cache what i tell to cache
+		spring.jpa.properties.jakarta.persistence.sharedCache.mode=ENABLE_SELECTIVE
+		4.	what data to cache? suppose the course class will not be change or will be same for everyone then this needs to be cache so use below annotation on it.
+		@Cacheable
+
+8. soft delete
+	- won't delete the record permenantly.
+	- used some flag to assume it is deleted. such as is_deleted = true;
+	- @SQLDelete(sql="update course set is_deleted=true where id=?") use this annotation on the entity class to soft delete the record.
+	- when u call the deleteById method then the above query will fire.
+	- but the problem is when u fire the select query then this deleted record will picked up so to overcome this us below annotation on entity class.
+	-@Where(clause="is_deleted=false") this annotation will add the condition in the where clause for every select query.native queries won't use this clause so do it manually.

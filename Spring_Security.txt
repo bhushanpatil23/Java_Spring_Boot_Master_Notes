@@ -1,0 +1,456 @@
+
+
+------------------------------------------------------------------------------------------------------------------------
+#5.2 Internal Working of Spring Security, Part 1
+
+Before going to controller I was presented with the screen that asked about username and password and then for different API requests we are no longer asked for username and password because spring security is maintening a session for us and all these happening by default.
+
+GO to Application (right click->inspect->cookies) one cookie will be generated for us with JSESSIONID nad it's value and until we logout this sessionId will be there and we will be validated.
+
+To logout-> localhost:8080/logout => confirm logout then I see that sessionid value will be changed.
+And if we are doing some api request then it will take us at localhost:8080/login because the sessionId is invalidated at the backend.So, even if the sessionId is there we.. because at the backend the spring security is maintening sessionId
+for us in the local memory only so it is storing the sessionid inside the application memory i.e. RAM only. And all of our requests will be validated against that sessionId only. And as of now the sessionId is expired it will not allow us to call api request as sessionId is expired.
+
+And if we inspect this (localhost:8080/login) page and go inside <form>...</form> there will be hidden field which has some value and this field name is '_csrf' and this csrf token which is passed by the server when it loaded this login page. This was generated at the backend only and passed to the frontend inside this particular (...login) page.
+Ans when we login using this CSRF token the sessionId and CSRF token will be linked and stored in the spring security.
+This is how really the spring security improves application against CSRF attacks.
+
+In Network tab we can see all the requests that are taking place. Now click on signing button the URL (localhost:8080/login) will be triggered and inside the payload we can see the request (username,password,_csrf) and this _csrf token actually passed in login request and was then validated and stored on with JSESSIONID so we have JSESSIONID,_csrf, ISVALID Flag at the backend so that it can validated all JSESSIONIDs. And in all the POST requests this _csrf token will be passed to your backend because _csrf is by default active for application.
+
+Instead of relying on default username and password we configure them inside application.properties like
+#Security Configs
+spring.security.user.name=banty
+spring.security.user.password=pass
+
+And by default after putting correct username and password the URL goes to localhost:8080/ i.e.'/'
+
+Generally no-one uses there login form inside production-ready-application instead create some /login apis /logout apis ans as there can be different login methods like JWT github fb, google.
+
+
+========================================================================================================================
+
+# RECAP PART 1 
+
+
+When you configure the spring boot project for spring security, the spring security auto-configuration will put the SecurityFilterChain with the help of DelegatingFilterProxy  which will basically
+register a new SecurityFilterChain in the original FilterChain of our spring boot project.
+
+All of the authentication request will first go inside SecurityFilterChain and from there they will go to AuthenticationManager because we have to authenticate the user and from there it will go to
+AuthenticationProvider (like DaoAuthenticationProvider, InMemoryAuthenticationProvider, Auth2AuthenticationProvider)
+ 
+Basically AuthenticationManager will be implemented by a class that contains the list of authentication provider and Each authenticationProvider will see that I can authenticate this request or not
+and all of them will try to authenticate that request
+ 
+All the incoming request that confirm to authenticate based on username and password based authentication will go to DaoAuthenticationProvider which will go to UserDetailService to fetch the
+user details which can come from various sources database, inmemory data. (UserDetailServiceImpl have will get username, Hashedpassword, authorities i.e. roles) and with the help of
+password encoder it will check that the incoming request password and hashedpassword matches or not and if they are a match then we will return the authenticated user back to the
+AuthenticationManager and then it will pass to security filter chain which will then put it into SecurityContextholder so that all the controllers thereafter can use it.
+
+The context is just like a global variable that is accessible throughout the application. SO it contains some information that is provided across all the apis in current application context. e.g. SpringSecurityContext which will provide the current user details. The SecurityContextHolder contains SecurityContext which contains the information regarding current logged-in user.
+
+e.g. we have api say /getMyProfile for this we don't have to pass any userId because what will happen that inside the service you can get the usrId from the SecurityContextHolder and then you can call the API /getMyProfile.
+
+========================================================================================================================
+
+#5.3 Internal Working of Spring Security, Part 2 - Core Components
+
+When the request comes to AuthenticationManager (interface) 
+	Authentication authenticate(Authentication obj);
+
+Inside out loginController we create an object of Authentication that will contain our user information (username,password) and the above authenticate method will return an Authentication object but that will be an authenticated user.
+However, the passed Authentication obj is not authenticated yet. 
+
+So the AuthenticationManager is given a task to get authenticated this request and give us an authenticated Authentication.
+
+ProviderManager is concrete class that implements AuthenticationManager and will implement the above authenticate method and this holds a list of providers as :
+				List<AuthenticationProvider> providers;
+	this will go through all of the authenticationProviders. 
+	
+Let's go through code:
+
+
+package org.springframework.security.authentication;
+
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+
+/**
+ * Processes an {@link Authentication} request.
+ *
+ * @author Ben Alex
+ */
+public interface AuthenticationManager {
+
+	/**
+	 * Attempts to authenticate the passed {@link Authentication} object, returning a
+	 * fully populated <code>Authentication</code> object (including granted authorities)
+	 * if successful.
+	 * <p>
+	 * An <code>AuthenticationManager</code> must honour the following contract concerning
+	 * exceptions:
+	 * <ul>
+	 * <li>A {@link DisabledException} must be thrown if an account is disabled and the
+	 * <code>AuthenticationManager</code> can test for this state.</li>
+	 * <li>A {@link LockedException} must be thrown if an account is locked and the
+	 * <code>AuthenticationManager</code> can test for account locking.</li>
+	 * <li>A {@link BadCredentialsException} must be thrown if incorrect credentials are
+	 * presented. Whilst the above exceptions are optional, an
+	 * <code>AuthenticationManager</code> must <B>always</B> test credentials.</li>
+	 * </ul>
+	 * Exceptions should be tested for and if applicable thrown in the order expressed
+	 * above (i.e. if an account is disabled or locked, the authentication request is
+	 * immediately rejected and the credentials testing process is not performed). This
+	 * prevents credentials being tested against disabled or locked accounts.
+	 * @param authentication the authentication request object
+	 * @return a fully authenticated object including credentials
+	 * @throws AuthenticationException if authentication fails
+	 */
+	Authentication authenticate(Authentication authentication) throws AuthenticationException;
+
+}
+
+
+
+package org.springframework.security.core;
+
+import java.io.Serializable;
+import java.security.Principal;
+import java.util.Collection;
+
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.core.context.SecurityContextHolder;
+
+/**
+ * Represents the token for an authentication request or for an authenticated principal
+ * once the request has been processed by the
+ * {@link AuthenticationManager#authenticate(Authentication)} method.
+ * <p>
+ * Once the request has been authenticated, the <tt>Authentication</tt> will usually be
+ * stored in a thread-local <tt>SecurityContext</tt> managed by the
+ * {@link SecurityContextHolder} by the authentication mechanism which is being used. An
+ * explicit authentication can be achieved, without using one of Spring Security's
+ * authentication mechanisms, by creating an <tt>Authentication</tt> instance and using
+ * the code:
+ *
+ * <pre>
+ * SecurityContext context = SecurityContextHolder.createEmptyContext();
+ * context.setAuthentication(anAuthentication);
+ * SecurityContextHolder.setContext(context);
+ * </pre>
+ *
+ * Note that unless the <tt>Authentication</tt> has the <tt>authenticated</tt> property
+ * set to <tt>true</tt>, it will still be authenticated by any security interceptor (for
+ * method or web invocations) which encounters it.
+ * <p>
+ * In most cases, the framework transparently takes care of managing the security context
+ * and authentication objects for you.
+ *
+ * @author Ben Alex
+ */
+public interface Authentication extends Principal, Serializable {
+
+	/**
+	 * Set by an <code>AuthenticationManager</code> to indicate the authorities that the
+	 * principal has been granted. Note that classes should not rely on this value as
+	 * being valid unless it has been set by a trusted <code>AuthenticationManager</code>.
+	 * <p>
+	 * Implementations should ensure that modifications to the returned collection array
+	 * do not affect the state of the Authentication object, or use an unmodifiable
+	 * instance.
+	 * </p>
+	 * @return the authorities granted to the principal, or an empty collection if the
+	 * token has not been authenticated. Never null.
+	 */
+	Collection<? extends GrantedAuthority> getAuthorities();
+
+	/**
+	 * The credentials that prove the principal is correct. This is usually a password,
+	 * but could be anything relevant to the <code>AuthenticationManager</code>. Callers
+	 * are expected to populate the credentials.
+	 * @return the credentials that prove the identity of the <code>Principal</code>
+	 */
+	Object getCredentials();
+
+	/**
+	 * Stores additional details about the authentication request. These might be an IP
+	 * address, certificate serial number etc.
+	 * @return additional details about the authentication request, or <code>null</code>
+	 * if not used
+	 */
+	Object getDetails();
+
+	/**
+	 * The identity of the principal being authenticated. In the case of an authentication
+	 * request with username and password, this would be the username. Callers are
+	 * expected to populate the principal for an authentication request.
+	 * <p>
+	 * The <tt>AuthenticationManager</tt> implementation will often return an
+	 * <tt>Authentication</tt> containing richer information as the principal for use by
+	 * the application. Many of the authentication providers will create a
+	 * {@code UserDetails} object as the principal.
+	 * @return the <code>Principal</code> being authenticated or the authenticated
+	 * principal after authentication.
+	 */
+	Object getPrincipal();
+
+	/**
+	 * Used to indicate to {@code AbstractSecurityInterceptor} whether it should present
+	 * the authentication token to the <code>AuthenticationManager</code>. Typically an
+	 * <code>AuthenticationManager</code> (or, more often, one of its
+	 * <code>AuthenticationProvider</code>s) will return an immutable authentication token
+	 * after successful authentication, in which case that token can safely return
+	 * <code>true</code> to this method. Returning <code>true</code> will improve
+	 * performance, as calling the <code>AuthenticationManager</code> for every request
+	 * will no longer be necessary.
+	 * <p>
+	 * For security reasons, implementations of this interface should be very careful
+	 * about returning <code>true</code> from this method unless they are either
+	 * immutable, or have some way of ensuring the properties have not been changed since
+	 * original creation.
+	 * @return true if the token has been authenticated and the
+	 * <code>AbstractSecurityInterceptor</code> does not need to present the token to the
+	 * <code>AuthenticationManager</code> again for re-authentication.
+	 */
+	boolean isAuthenticated();
+
+	/**
+	 * See {@link #isAuthenticated()} for a full description.
+	 * <p>
+	 * Implementations should <b>always</b> allow this method to be called with a
+	 * <code>false</code> parameter, as this is used by various classes to specify the
+	 * authentication token should not be trusted. If an implementation wishes to reject
+	 * an invocation with a <code>true</code> parameter (which would indicate the
+	 * authentication token is trusted - a potential security risk) the implementation
+	 * should throw an {@link IllegalArgumentException}.
+	 * @param isAuthenticated <code>true</code> if the token should be trusted (which may
+	 * result in an exception) or <code>false</code> if the token should not be trusted
+	 * @throws IllegalArgumentException if an attempt to make the authentication token
+	 * trusted (by passing <code>true</code> as the argument) is rejected due to the
+	 * implementation being immutable or implementing its own alternative approach to
+	 * {@link #isAuthenticated()}
+	 */
+	void setAuthenticated(boolean isAuthenticated) throws IllegalArgumentException;
+
+}
+
+
+
+package org.springframework.security.authentication;
+
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.AuthenticationException;
+
+/**
+ * Indicates a class can process a specific
+ * {@link org.springframework.security.core.Authentication} implementation.
+ *
+ * @author Ben Alex
+ */
+public interface AuthenticationProvider {
+
+	/**
+	 * Performs authentication with the same contract as
+	 * {@link org.springframework.security.authentication.AuthenticationManager#authenticate(Authentication)}
+	 * .
+	 * @param authentication the authentication request object.
+	 * @return a fully authenticated object including credentials. May return
+	 * <code>null</code> if the <code>AuthenticationProvider</code> is unable to support
+	 * authentication of the passed <code>Authentication</code> object. In such a case,
+	 * the next <code>AuthenticationProvider</code> that supports the presented
+	 * <code>Authentication</code> class will be tried.
+	 * @throws AuthenticationException if authentication fails.
+	 */
+	Authentication authenticate(Authentication authentication) throws AuthenticationException;
+
+	/**
+	 * Returns <code>true</code> if this <Code>AuthenticationProvider</code> supports the
+	 * indicated <Code>Authentication</code> object.
+	 * <p>
+	 * Returning <code>true</code> does not guarantee an
+	 * <code>AuthenticationProvider</code> will be able to authenticate the presented
+	 * <code>Authentication</code> object. It simply indicates it can support closer
+	 * evaluation of it. An <code>AuthenticationProvider</code> can still return
+	 * <code>null</code> from the {@link #authenticate(Authentication)} method to indicate
+	 * another <code>AuthenticationProvider</code> should be tried.
+	 * </p>
+	 * <p>
+	 * Selection of an <code>AuthenticationProvider</code> capable of performing
+	 * authentication is conducted at runtime the <code>ProviderManager</code>.
+	 * </p>
+	 * @param authentication
+	 * @return <code>true</code> if the implementation can more closely evaluate the
+	 * <code>Authentication</code> class presented
+	 */
+	boolean supports(Class<?> authentication);
+
+}
+
+
+Whenever you want to authenticate on the basis of username and password we will user DaoAuthenticationProvider which uses UserDetailService(interface contains method getUsername(),getPassword(),getAuthorities() and it will be implemented by your own entity) which will get the user details from InMemoryUserDetailsManager or MyUserDetailServiceImpl.
+
+i.e. here we will write the code for userEntity which will implement the interface UserDetails and userService will implement the interface UserDetailService;
+
+And on the basis of which UserDetailService we are currently using we will get the user details from that place.
+Now this user details i.e. username and password will come to service basically to the DaoAuthenticationProvider,(here the password is encoded by PasswordEncoder i.e. we will hash this password in a one way hash so that no other user if they get hold of our database they can look at all the password. In our company also no employee can look the passwords also. So we store the password like this).
+So, now we DaoAuthenticationProvider will have the username and hashed password and this will detail will be passed to PasswordEncoder(interface contains method encode(), matches())
+encode(): While sign up this method will be used to encode the password and then store that encoded password inside our database.
+matches(): We can pass two things first is the password coming from the request and another is your hashed password and so it will hash the given password again and it will try to match the hashedpassword. If it matches then it will return true i.e. the authentication is now succeeded. In that case DaoAuthenticationProvider will say that ok now this particular request has been authenticated. Else if this return false DaoAuthenticationProvider will not return Authentication.
+
+In true case the Authentication will then the Authentication will be return form ProviderManager and then to the AuthenticationManager and then back to the controllers. 
+
+
+package org.springframework.security.core.userdetails;
+
+import java.io.Serializable;
+import java.util.Collection;
+
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
+
+/**
+ * Provides core user information.
+ *
+ * <p>
+ * Implementations are not used directly by Spring Security for security purposes. They
+ * simply store user information which is later encapsulated into {@link Authentication}
+ * objects. This allows non-security related user information (such as email addresses,
+ * telephone numbers etc) to be stored in a convenient location.
+ * <p>
+ * Concrete implementations must take particular care to ensure the non-null contract
+ * detailed for each method is enforced. See
+ * {@link org.springframework.security.core.userdetails.User} for a reference
+ * implementation (which you might like to extend or use in your code).
+ *
+ * @author Ben Alex
+ * @see UserDetailsService
+ * @see UserCache
+ */
+public interface UserDetails extends Serializable {
+
+	/**
+	 * Returns the authorities granted to the user. Cannot return <code>null</code>.
+	 * @return the authorities, sorted by natural key (never <code>null</code>)
+	 */
+	Collection<? extends GrantedAuthority> getAuthorities();
+
+	/**
+	 * Returns the password used to authenticate the user.
+	 * @return the password
+	 */
+	String getPassword();
+
+	/**
+	 * Returns the username used to authenticate the user. Cannot return
+	 * <code>null</code>.
+	 * @return the username (never <code>null</code>)
+	 */
+	String getUsername();
+
+	/**
+	 * Indicates whether the user's account has expired. An expired account cannot be
+	 * authenticated.
+	 * @return <code>true</code> if the user's account is valid (ie non-expired),
+	 * <code>false</code> if no longer valid (ie expired)
+	 */
+	default boolean isAccountNonExpired() {
+		return true;
+	}
+
+	/**
+	 * Indicates whether the user is locked or unlocked. A locked user cannot be
+	 * authenticated.
+	 * @return <code>true</code> if the user is not locked, <code>false</code> otherwise
+	 */
+	default boolean isAccountNonLocked() {
+		return true;
+	}
+
+	/**
+	 * Indicates whether the user's credentials (password) has expired. Expired
+	 * credentials prevent authentication.
+	 * @return <code>true</code> if the user's credentials are valid (ie non-expired),
+	 * <code>false</code> if no longer valid (ie expired)
+	 */
+	default boolean isCredentialsNonExpired() {
+		return true;
+	}
+
+	/**
+	 * Indicates whether the user is enabled or disabled. A disabled user cannot be
+	 * authenticated.
+	 * @return <code>true</code> if the user is enabled, <code>false</code> otherwise
+	 */
+	default boolean isEnabled() {
+		return true;
+	}
+
+}
+
+# 5.4 Spring Security Web Config - SecurityFilterChain Configuration
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.provisioning.InMemoryUserDetailsManager;
+import org.springframework.security.web.SecurityFilterChain;
+
+@EnableWebSecurity
+@Configuration
+public class WebSecurityConfig {
+
+	@Bean
+	SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
+		httpSecurity
+			.authorizeHttpRequests(auth -> auth
+					.requestMatchers("/posts").permitAll()
+					.requestMatchers("/posts/**").hasAnyRole("ADMIN")
+					.anyRequest().authenticated())
+			.csrf(csrfconfig -> csrfconfig.disable())
+			.sessionManagement(sessionConfig -> sessionConfig
+					.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+//			.formLogin(Customizer.withDefaults());
+		return httpSecurity.build();
+	}
+	
+	@Bean
+	UserDetailsService inMemoryUserDetailsService() {
+		
+		UserDetails normalUser = User
+				.withUsername("banty")
+				.password(passwordEncoder().encode("bpass"))
+				.roles("USER")
+				.build();
+		
+		UserDetails adminUser = User
+				.withUsername("admin")
+				.password(passwordEncoder().encode("admin"))
+				.roles("ADMIN")
+				.build();
+		return new InMemoryUserDetailsManager(normalUser,adminUser);
+	}
+	
+	@Bean
+	PasswordEncoder passwordEncoder() {
+		return new BCryptPasswordEncoder();
+	}
+	
+}
+
+Default SecurityFilterChain Config
+• authorizeRequests() restricts access based on RequestMatcher implementations.
+• authenticated() requires that all endpoints called be authenticated before proceeding in the filter chain.
+• formLogin() calls the default FormLoginConfigurer class that loads the login page to authenticate via username -      password and accordingly redirects to corresponding failure or success handlers.
+• csrf() to cofigure the csrf protection
+
+
+
+
+

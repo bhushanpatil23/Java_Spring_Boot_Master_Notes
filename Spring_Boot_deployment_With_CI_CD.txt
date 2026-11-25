@@ -1,0 +1,306 @@
+
+Create RDS in AWS
+
+RDS = Relational Database Service
+This is a managed database service provided by AWS. RDS is required to create relational database servers.
+
+#How to create RDS instance in AWS?
+
+search RDS 
+Managed Relational Database Service
+Amazon RDS databse dashboard
+create database
+choose standard create
+choose posrgresql 
+choose engine version PostgreSQL 16.4-R1
+choose template free tier
+DB instance identifier setting as postgres-spring
+master username root
+credential management - Self managed
+password postgres-1
+instance configuration Burstable classes - db.t3.micro
+allocated storage as per need let say - 20 GB
+storage autoscaling will increase as per demand
+Connectivity :
+	Don't connect to an EC2 instance
+	VPC (there are two sub-networks public sub-network and private sub-network) private sub network will include all those things that you don't want to disclose to publicly. 
+	For now go with default VPC 
+	default subnet group
+	public access YES as for now to connect fom DBeaver and NO for production database
+	VPC Security group(it basically means diffrent types of roles like whoch ip address should allow to access it or not)
+	Create new VPC Security group
+	avalibilty zone no preference or 1a 1b  1c any as per preference
+	default DatabasePort : 5432 as it is
+	
+
+Additional Configuration: Database Options: Initial Database Name: 
+
+Create databse status will be creating then backing up and then available 
+you will see an endpoint and port there
+
+Now, open the DBeaver crete new database
+connect postgres sql database 
+here the localhost is endpoint from aws database connectivity
+then written database name
+then master username which is configured in aws here root
+password set earlier - postgres-1
+
+configure the datasource.url username & password in application.properties in spring boot application
+-----------------------------------------------------------------------------------------------------------------
+
+
+Deployment Spring Profiles
+
+eclipse -> run configurations -> environment variables
+
+@Profile("dev/prod)
+DataServiceImpl
+
+application.properties 
+
+my.variable = dev/prod
+
+------------------------------------------------------------------------------------------------------------
+
+Deploy on Elastic Beanstalk woth Load balancer, EC2, Autoscaling and RDS connection
+
+Elastic Beanstalk is an orchestration service. It uses the load balancers and and EC2 instances and autoscaling groups behind the scene to deploy and to manage our applications. We can deploy all sorts of application using Elastic Beanstalk. There is no additional charge for Elastic Beanstalk. Because it's just an simple orchestration service. It's not actual service basically it's used to facilitate orchestration between multiple other services like auto-scaling groups, load balancers and s3s and EC2 instances and all that.
+
+Search Elastic Beanstalk in all services at aws console
+
+then create application
+
+Configure Environment:
+	Environment Tier : Web server environment
+Application Information: 
+	Application Name : employee-service
+Environment Information:
+	Environment Name: Employee-service-env-1 (that comes automatically)
+		(Note : In each application we can have multiple environments and all these environments can have multiple Load Balancers and EC2s attached to it.)
+	Domain: Employee-service-env-1..eu-north-1.elasticbeanstalk.com
+			check the avalibilty 
+Platform: Java
+Platform Branch: Correto 17 running on 64bit Amazon Linux 2023
+Platform version: 4.3.0 (Recommended)
+
+Application Code:
+		for now sample application
+Presets: Single instance (free tier eligible)
+
+Next:
+Service Access: (This contains certain roles and permissions that are required by diffrent services)
+
+.....
+
+Role
+Create Role 
+Trusted entity type: AWS service
+Use case EC2: next
+awsElastocbeanstalkcustomplatform....
+
+next
+
+ROle name: elasticbeanstalk-employee-service-ec2-role
+
+cretae role
+
+
+Back to service access:
+
+Service Role : use an existing service role
+
+Select Existing service roles: elasticbeanstalk-employee-service-ec2-role
+
+Select EC2 instance profile from dropdown (if not appear refresh)
+
+next
+
+Set up networking, database, and tags - optional
+
+VPC : default VPC
+
+Public IP Address: check Activated
+check all availability subnets
+
+Database: It's not recommended to configure database as many issue or problem there.
+			so do not enable this database.
+			
+next...
+
+Configure instance traffic and scaling -optional
+
+leave thisas default:
+
+Autoscaling Group:
+	Environment Type: Load Balanced
+	Capacity:
+	Instances: Min 1 Max 4
+	Instance Type: t3.micro only remove t3.small
+	Scaling Trigger: (as we want to create more instances as more traffic arrives)
+		Metric: CPUUtilization
+		Period: 1 Min
+		Upper thresjold : 80%
+		scale up increment: 1
+		lower threshold: 40%
+		scale down increment: -1
+		
+	Load balancer network settings:
+	public visibility for now:
+	
+Load Balancer Type:
+		Application Load Balancer -> Dedicated
+		
+		Listeners:
+			leave then everything default at this page for now
+next..
+Health reporting System: Basic
+	uncheck managed platform updates activated uhcheck
+	
+Rolling update and deployment: i.e. how do you want to deploy on all EC2 instances(just like rolling restart in tcs BaNCS TA project as I heared there this is it)
+	As we have set max four instances here :
+	This is used when some new code is pushed there or any deployment is there :
+	We can set the deployment policy like All at once, Rolling, Rolling with additional batch
+	
+	All at once: has some pros and cons:
+	i.e. if we want to push new code at all instances at once that is all at once instances , SO the pros is that the all the code deployment is faster but the cons is that our application gets unavalble for some time.
+	Other Option is Rolling:
+	
+	Rolling: The code gets deployed one at a time. so when the code gets deployed successfully at first instance then only at second instance and so on. So, in rolling is downtime is less and availability is high.
+	
+choose : Rolling -> fixed 
+		deployment batch size: 1 instance at a time
+		
+ENVIRONMENT: there are 3 environment properties are defined for us.
+			one more thing we can define here is port: 8080 which is also default for elasticbeanstalk.
+			we can also define other variables also for like database configuration.
+			
+			next..
+			
+create application will take some time 5 min...
+
+and we have to make some 3 changes:
+1. we have to create default controller that will have an get mapping for '/' route
+2. chnage the java version in our application code like corretto above
+3. we want to create some environment variables to support database
+
+try to launch application after successfull db connection also from dbeaver
+
+then now to upload out own code jar
+
+go to configuration -> update monitoring and loggin edit option 
+	
+
+-------------------------------------------------------------------------------------------------------------------------
+Setup CI/CD with AWS CodePipeline and CodeBuild with Github hooks:
+
+All Services -> CodePipeline -> create pipeline 
+
+pipeline name: employee-service-pipeline
+
+Add source stage: github version 1 connect to github 
+
+create a new repo to github
+
+
+	
+
+
+ 
+ then copy git add remote origin
+ 
+ git remote add origin https://github.com/bhushanpatil23/spring-employee-service.git
+git branch -M main
+git push -u origin main
+
+add source stage next step 
+Build -optional 
+	Github is used to pull the source code but we have to build our application because inside my local environment what I was doing is I was making help of maven command line to compile & build my project and after that is feeding out a jar file, so that thing I want to do in AWS so for that we have to use a build provider.
+	choose -> AWS codebuild
+	
+
+
+create project 
+project configuration: the role of this is project is to build our application.
+project bame: employee-service-build-project 
+
+leave some default as is
+
+Service Role 
+	new service role name: employee-service-build-project-service-role
+
+leave some defaults
+.
+..
+...
+
+BuildSpec:
+	use a buildspec file
+	so project will look for buildspec.yml file in src code directory
+	.
+	..
+	
+continue to codepipiline
+
+single build 
+deploy stage
+
+deploy proivder: AWS Elastic Beanstalk
+application name: employee-service
+
+environment: employee-service-env 
+
+next..
+
+create pipeline
+
+there will be 3 steps for the created pipeline :
+
+to fetch the code from the github 
+then build process will start
+after build successfull(it mmight failed if you dont have any build spec file)
+the code will be deployed to Elastic Beanstalk
+
+so in eclipse in project right click create buildspec.yml file
+git commit this file 
+then git push
+
+then go on pipeline check process will start again
+that is out code gets picked from there
+it will picked jar file and provid automatically to Elastic Beanstalk 
+go to elasticbeanstalk and we can see the elasticbeanstalk employee-service env 
+
+go to pipeline realease changes
+
+..
+..
+...
+-------------------------------------------------------------------------------------------------------------------------
+
+Database migration in production using flyway
+
+to manage db versions this tool i.e. flyway is used 
+
+spring.jpa.hibernate.ddl-auto = validate (recommended in production environment)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------------
+#Topics to search 
+EC2 instance
+VPC
